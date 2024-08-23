@@ -10,10 +10,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@discordjs/voice": "^0.16.1",
-    "discord.js": "^14.14.1",
+    "@discordjs/voice": "^0.17.0",
+    "discord.js": "^14.15.3",
     "ffmpeg-static": "^5.2.0",
-    "genius-lyrics": "^4.4.6",
+    "genius-lyrics": "^4.4.7",
     "play-dl": "^1.9.7",
     "tweetnacl": "^1.0.3"
   }

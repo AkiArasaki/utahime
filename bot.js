@@ -1,11 +1,11 @@
 const {EmbedBuilder} = require('discord.js');
 const {joinVoiceChannel, createAudioPlayer, createAudioResource} = require("@discordjs/voice");
 const Genius = require("genius-lyrics");
-//const lyricClient = new Genius.Client(geniusId);
+const {geniusId} = require('./config.json');
+const lyricClient = new Genius.Client(geniusId);
 const play = require('play-dl');
 require("tweetnacl");
 require("ffmpeg-static");
-const {geniusId} = require('./config.json');
 
 //Music bot class
 class Bot {
