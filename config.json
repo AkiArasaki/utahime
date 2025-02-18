@@ -1,5 +1,6 @@
 {
   "token": "YourToken",
   "clientId": "YourClientID",
-  "geniusId": "YourGeniusID"
+  "geniusId": "YourGeniusID",
+  "cookies": "YourCookies"
 }

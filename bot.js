@@ -1,12 +1,15 @@
 const {EmbedBuilder} = require('discord.js');
 const {joinVoiceChannel, createAudioPlayer, createAudioResource} = require("@discordjs/voice");
 const Genius = require("genius-lyrics");
-const {geniusId} = require('./config.json');
+const {geniusId, cookies} = require('./config.json');
 const lyricClient = new Genius.Client(geniusId);
 const ytdl = require('@distube/ytdl-core');
 const play = require('play-dl');
 require("tweetnacl");
 require("ffmpeg-static");
+
+//ytdl cookie reset
+const agent = ytdl.createAgent(cookies);
 
 //Music bot class
 class Bot {
@@ -75,8 +78,8 @@ class Bot {
         }
         try {
             //Fetch track info with play dl from YouTube
-            let info = await ytdl.getBasicInfo(url);
-            let stream = ytdl(url, { filter: 'audioonly' });
+            let info = await ytdl.getBasicInfo(url, { agent });
+            let stream = ytdl(url, { filter: 'audioonly', agent });
             if (!this.queue[id]) {
                 this.queue[id] = [];
             }
