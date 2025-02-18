@@ -3,6 +3,7 @@ const {joinVoiceChannel, createAudioPlayer, createAudioResource} = require("@dis
 const Genius = require("genius-lyrics");
 const {geniusId} = require('./config.json');
 const lyricClient = new Genius.Client(geniusId);
+const ytdl = require('@distube/ytdl-core');
 const play = require('play-dl');
 require("tweetnacl");
 require("ffmpeg-static");
@@ -74,15 +75,15 @@ class Bot {
         }
         try {
             //Fetch track info with play dl from YouTube
-            let info = await play.video_info(url);
-            let stream = await play.stream_from_info(info);
+            let info = await ytdl.getBasicInfo(url);
+            let stream = ytdl(url, { filter: 'audioonly' });
             if (!this.queue[id]) {
                 this.queue[id] = [];
             }
             //Push track into corresponding queue
             this.queue[id].push({
                 interaction: interaction,
-                title: info.video_details.title,
+                title: info.videoDetails.title,
                 url: url,
                 stream: stream
             });
@@ -93,7 +94,7 @@ class Bot {
                     embeds: [new EmbedBuilder()
                         .setColor('#3498DB')
                         .setTitle('Track queued:')
-                        .setDescription(info.video_details.title)
+                        .setDescription(info.videoDetails.title)
                         .setURL(url)
                         .setTimestamp()], components: [], ephemeral: true
                 });
@@ -111,7 +112,7 @@ class Bot {
         if (!this.isPlaying[id]) {
             //Update isPlaying
             this.isPlaying[id] = true;
-            this.player[id].play(createAudioResource(this.queue[id][0].stream.stream, {inputType: this.queue[id][0].stream.type}));
+            this.player[id].play(createAudioResource(this.queue[id][0].stream, {inputType: this.queue[id][0].stream.type}));
             //Broadcast player info / status
             interaction.channel.send({
                 embeds: [new EmbedBuilder()
@@ -137,7 +138,7 @@ class Bot {
                             .setTimestamp()
                         ]
                     });
-                    this.player[id].play(createAudioResource(this.queue[id][0].stream.stream, {inputType: this.queue[id][0].stream.type}));
+                    this.player[id].play(createAudioResource(this.queue[id][0].stream, {inputType: this.queue[id][0].stream.type}));
                 } else {
                     if (this.isPlaying[id] === true) {
                         this.isPlaying[id] = false;
