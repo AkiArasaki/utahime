@@ -1,0 +1,24 @@
+Title: Disable IPv6 on Ubuntu to Fix YouTube Streaming Issues
+
+Problem:
+When running the Discord music bot on Ubuntu, songs may stop playing after a few seconds due to streaming errors such as:
+- ETIMEDOUT
+- ENETUNREACH
+
+Cause:
+The system tries to connect to YouTube's CDN using IPv6 first, but fails because IPv6 is not properly configured or not reachable. This causes the stream to timeout and disconnect.
+
+Solution:
+Disable IPv6 on the system so it always uses IPv4, which is more reliable in most environments.
+
+Temporary (until reboot):
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+
+Permanent (survives reboot):
+echo "net.ipv6.conf.all.disable_ipv6 = 1" | sudo tee -a /etc/sysctl.conf
+echo "net.ipv6.conf.default.disable_ipv6 = 1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+Make sure to apply this if your bot encounters connection or timeout issues with YouTube audio streaming.
+
