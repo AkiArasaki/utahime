@@ -11,6 +11,7 @@ require("tweetnacl");
 require("ffmpeg-static");
 const { AudioPlayerStatus } = require('@discordjs/voice');
 const prism = require('prism-media');
+const { fixPlaylistUrl } = require('./handlers/fixPlaylistUrl');
 // const { safeReply } = require('./checkReply');
 // console.log('[DEBUG] prism-media Opus loaded:', prism.opus.Encoder !== undefined);
 //Music bot class
@@ -226,8 +227,40 @@ class Bot {
         this.left[id] = false;
         try {
             //Fetch playlist info with play dl from YouTube
-            const playlist = await play.playlist_info(url);
-            const videos = await playlist.all_videos();
+            // 
+            const safeUrl = fixPlaylistUrl(url);
+            if (!safeUrl) {
+                await interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#E74C3C')
+                        .setTitle('This is not a valid YouTube playlist url')
+                        .setDescription('Use /search to queue with keywords')
+                        .setTimestamp()], components: [], flags: 64
+                });
+                return;
+            }
+            // console.log(safeUrl)
+            const playlist = await play.playlist_info(safeUrl);
+            let videos = [];
+            try {
+                videos = await playlist.all_videos();
+            } catch (e) {
+                console.warn('all_videos failed, using partial list');
+                videos = playlist.videos;
+            }
+            console.log(`[Playlist] Found ${videos.length} videos`);
+
+            if (videos.length === 0) {
+                return await interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#E67E22')
+                        .setTitle('No playable videos found in the playlist.')
+                        .setTimestamp()],
+                    components: [], flags: 64
+                });
+            }
+            // const playlist = await play.playlist_info(url);
+            // const videos = await playlist.all_videos();
             //Queue tracks
             for (let i = 0; i < videos.length; i++) {
                 if (this.left[id]) {
@@ -255,6 +288,7 @@ class Bot {
                     .setTitle('This playlist is currently unavailable')
                     .setTimestamp()], components: [], flags: 64
             });
+            console.error(`[dispatchPlaylist Error] ${e.message}`);
         }
     }
 
