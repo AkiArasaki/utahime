@@ -1,4 +1,5 @@
 const {SlashCommandBuilder} = require('discord.js');
+const resume = require('../../lib/resume');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -6,6 +7,6 @@ module.exports = {
         .setDescription('Resume track from pausing'),
     async execute(interaction, bot) {
         //Process in bot instance
-        bot.resume(interaction);
+        resume(interaction, bot);
     },
 };
