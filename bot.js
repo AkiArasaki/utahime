@@ -1,13 +1,18 @@
-const {EmbedBuilder} = require('discord.js');
-const {joinVoiceChannel, createAudioPlayer, createAudioResource} = require("@discordjs/voice");
+const { EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, Events, ComponentType } = require('discord.js');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require("@discordjs/voice");
 const Genius = require("genius-lyrics");
-const {geniusId} = require('./config.json');
+const { geniusId } = require('./config.json');
 const lyricClient = new Genius.Client(geniusId);
 const ytdl = require('@distube/ytdl-core');
+const { DisTube } = require('distube');
 const play = require('play-dl');
 require("tweetnacl");
 require("ffmpeg-static");
-
+const { AudioPlayerStatus } = require('@discordjs/voice');
+const prism = require('prism-media');
+// const { safeReply } = require('./checkReply');
+// console.log('[DEBUG] prism-media Opus loaded:', prism.opus.Encoder !== undefined);
 //Music bot class
 class Bot {
     //constructor
@@ -16,53 +21,137 @@ class Bot {
         this.player = {};
         this.queue = {};
         this.isPlaying = {};
+        this.left = {};
+        this.searchResults = {};
+    }
+    insertTop(guildId, song) {
+        if (!this.queue[guildId]) this.queue[guildId] = [];
+        //this.player[guildId].stop();
+        const queue = this.queue[guildId];
+        // If the queue is empty, just push the song
+        if (queue.length === 0) {
+            // if queue is empty, just push the song
+            queue.push(song);
+        } else {
+            // otherwise, insert the song at index 1
+            // cant use unshift because it would break the queue order
+            queue.splice(1, 0, song);
+        }
+    }
+    generateEmbed(queue, page, pageSize = 10) {
+        const totalPages = Math.ceil(queue.length / pageSize);
+        const start = page * pageSize;
+        const end = start + pageSize;
+        const pageItems = queue.slice(start, end);
+        const description = pageItems.map((item, idx) => `[${start + idx + 1}] ${item.title}`).join('\n');
+        return new EmbedBuilder()
+            .setColor('#2ECC71')
+            .setTitle('Current queue:')
+            .setDescription(description)
+            .setFooter({ text: `Page ${page + 1} of ${totalPages}` })
+            .setTimestamp();
     }
 
-    //Play music with url
-    async play(interaction, url) {
-        //If user is not in a voice channel
-        if (!interaction.member.voice.channel) {
-            await interaction.editReply({
+    createActionRow(page, totalPages) {
+        return new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('prev').setLabel('⬅ Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+            new ButtonBuilder().setCustomId('next').setLabel('Next ➡').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1),
+            new ButtonBuilder().setCustomId('jump').setLabel('🔢 Jump to Page').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('search').setLabel('🔍 Search').setStyle(ButtonStyle.Success)
+        );
+    }
+
+    updateQueuePage(interaction, embed, components) {
+        if (interaction.deferred || interaction.replied) {
+            // already replied or deferred, use editReply
+            return interaction.editReply({
+                embeds: [embed],
+                components: components
+            });
+        } else if (interaction.isButton()) {
+            // button interaction, use update
+            return interaction.update({
+                embeds: [embed],
+                components: components
+            });
+        } else {
+            // fallback to reply
+            console.warn('[updateQueuePage] Interaction is neither deferred nor replied, using reply instead');
+            return interaction.reply({
+                embeds: [embed],
+                components: components,
+                ephemeral: true
+            });
+        }
+    }
+    // playNext function to play next track in queue
+    async playNext(id) {
+        if (this.left[id]) {
+            console.warn(`[dispatchPlaylist] Guild ${id} already left, skipping playNext`);
+            return;
+        }
+        this.left[id] = false;
+        const track = this.queue[id]?.[0];
+        if (!track) {
+            this.isPlaying[id] = false;
+            if (this.connection[id] && this.connection[id].state.status !== 'destroyed') {
+                this.connection[id].destroy();
+            } //make sure to destroy the connection
+            // this.connection[id].destroy();
+            track?.interaction.channel.send({
                 embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('Please join a voice channel first')
+                    .setColor('#3498DB')
+                    .setTitle('End of queue')
                     .setDescription('.help for commands')
                     .setTimestamp()]
             });
+            return;
         }
-        if (!url.includes("youtube.com")) {
-            //Url is invalid
-            await interaction.editReply({
+        try {
+            const stream = ytdl(track.url, {
+                filter: 'audioonly',
+                highWaterMark: 1 << 26, // 64MB
+                quality: 'highestaudio', // 'highestaudio' for best quality
+                /*quality: 0,*/
+                liveBuffer: 4000,
+                dlChunkSize: 64 * 1024, // avoid -1 issue
+                /*dlChunkSize: 0,*/
+                requestOptions: {
+                    timeout: 30000 // 30 seconds timeout
+                }
+            });
+            stream.on('error', err => {
+                console.error('[Stream Error]', err);
+                this.queue[id].shift();
+                this.playNext(id);
+            });
+            const resource = createAudioResource(stream, { inlineVolume: true });
+            resource.volume.setVolume(1.0);
+            //const resource = createAudioResource(stream);
+            this.player[id].play(resource);
+            track.interaction.channel.send({
                 embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('This is not an valid YouTube url')
-                    .setDescription('Use /search if you want to queue a track with keywords')
+                    .setColor('#3498DB')
+                    .setTitle('Now playing:')
+                    .setDescription(track.title)
+                    .setURL(track.url)
                     .setTimestamp()]
             });
-        } else if (url.includes("playlist")) {
-            //Url is a playlist
-            await this.dispatchPlaylist(interaction, url);
-        } else {
-            //Url is a track
-            return this.dispatch(interaction, url, false);
+        } catch (error) {
+            console.error(`[playNext Error] ${error.message}`);
+            this.queue[id].shift();
+            this.playNext(id); // play next track
         }
     }
-
-    //Search tracks with keywords
-    async search(keywords) {
-        //Fetch possible results from YouTube (5 items)
-        const musicTitle = await play.search(keywords, {limit: 5});
-        const choices = [];
-        for (const youTubeVideo of musicTitle) {
-            choices.push([youTubeVideo.title, youTubeVideo.url]);
-        }
-        //Return results array to command call
-        return choices;
-    }
-
     //Fetch single track url
     async dispatch(interaction, url, isPlaylist) {
+
         const id = interaction.guildId;
+        if (this.left[id]) {
+            console.warn(`[dispatchPlaylist] Guild ${id} already left, skipping dispatch`);
+            return;
+        }
+        this.left[id] = false;
         //Join voice channel
         if (this.connection[id] == null || this.connection[id].state.status === "destroyed") {
             this.connection[id] = joinVoiceChannel({
@@ -70,13 +159,27 @@ class Bot {
                 guildId: id,
                 adapterCreator: interaction.guild.voiceAdapterCreator
             });
-            this.player[id] = createAudioPlayer();
+            this.player[id] = createAudioPlayer({
+                behaviors: {
+                    maxMissedFrames: 8 // default is 5, increase to avoid disconnects
+                }
+            });
             this.connection[id].subscribe(this.player[id]);
+            // add listeners for player events
+            this.player[id].on(AudioPlayerStatus.Idle, () => {
+                this.queue[id].shift();
+                this.playNext(id);
+            });
+            this.player[id].on('error', error => {
+                console.error(`[AudioPlayer Error]: ${error.message}`);
+                this.queue[id].shift();
+                this.playNext(id);
+            });
         }
         try {
             //Fetch track info with play dl from YouTube
             let info = await ytdl.getBasicInfo(url);
-            let stream = ytdl(url, { filter: 'audioonly' });
+            // console.log('[dispatch]', info.videoDetails.title, url);
             if (!this.queue[id]) {
                 this.queue[id] = [];
             }
@@ -85,7 +188,6 @@ class Bot {
                 interaction: interaction,
                 title: info.videoDetails.title,
                 url: url,
-                stream: stream
             });
             //Check if call is from fetchPlaylist
             if (!isPlaylist) {
@@ -96,239 +198,99 @@ class Bot {
                         .setTitle('Track queued:')
                         .setDescription(info.videoDetails.title)
                         .setURL(url)
-                        .setTimestamp()], components: [], ephemeral: true
+                        .setTimestamp()], components: [], flags: 64
                 });
             }
+            if (!this.isPlaying[id]) {
+                this.isPlaying[id] = true;
+                this.playNext(id);
+            }
+
         } catch (e) {
             //Edit command call with failure message
             await interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#E74C3C')
                     .setTitle('This track is currently unavailable')
-                    .setTimestamp()], components: [], ephemeral: true
-            });
-        }
-        //Check if bot is already playing in the command call server
-        if (!this.isPlaying[id]) {
-            //Update isPlaying
-            this.isPlaying[id] = true;
-            this.player[id].play(createAudioResource(this.queue[id][0].stream, {inputType: this.queue[id][0].stream.type}));
-            //Broadcast player info / status
-            interaction.channel.send({
-                embeds: [new EmbedBuilder()
-                    .setColor('#3498DB')
-                    .setTitle('Now playing:')
-                    .setDescription(this.queue[id][0].title)
-                    .setURL(this.queue[id][0].url)
-                    .setTimestamp()
-                ]
-            });
-            //Player watchdog
-            this.player[id].on("idle", () => {
-                //Auto shifting tracks
-                this.queue[id].shift();
-                if (this.queue[id].length > 0) {
-                    //Broadcast player info / status
-                    this.queue[id][0].interaction.channel.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor('#3498DB')
-                            .setTitle('Now playing:')
-                            .setDescription(this.queue[id][0].title)
-                            .setURL(this.queue[id][0].url)
-                            .setTimestamp()
-                        ]
-                    });
-                    this.player[id].play(createAudioResource(this.queue[id][0].stream, {inputType: this.queue[id][0].stream.type}));
-                } else {
-                    if (this.isPlaying[id] === true) {
-                        this.isPlaying[id] = false;
-                        //Broadcast player info / status
-                        interaction.channel.send({
-                            embeds: [new EmbedBuilder()
-                                .setColor('#3498DB')
-                                .setTitle('End of queue')
-                                .setDescription('.help for commands')
-                                .setTimestamp()]
-                        });
-                        this.connection[id].destroy();
-                    }
-                }
+                    .setTimestamp()], components: [], flags: 64
             });
         }
     }
 
     //Fetch playlist url
     async dispatchPlaylist(interaction, url) {
+        const id = interaction.guildId;
+        if (this.left[id]) {
+            return;
+        }
+        this.left[id] = false;
         try {
             //Fetch playlist info with play dl from YouTube
             const playlist = await play.playlist_info(url);
             const videos = await playlist.all_videos();
             //Queue tracks
             for (let i = 0; i < videos.length; i++) {
+                if (this.left[id]) {
+                    console.warn(`[dispatchPlaylist] Guild ${id} leaft during playlist dispatch, stopping further processing`);
+                    break;
+                }
                 await this.dispatch(interaction, videos[i].url, true);
             }
             //Edit command call if playlist fetch successes
-            await interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#3498DB')
-                    .setTitle('Playlist queued:')
-                    .setDescription(playlist.title)
-                    .setURL(url)
-                    .setTimestamp()], components: [], ephemeral: true
-            });
+            if (!this.left[id]) {
+                await interaction.reply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#3498DB')
+                        .setTitle('Playlist queued:')
+                        .setDescription(playlist.title)
+                        .setURL(url)
+                        .setTimestamp()], components: [], flags: 64
+                });
+            }
         } catch (e) {
             //Edit command call if playlist fetching failed
             await interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#E74C3C')
                     .setTitle('This playlist is currently unavailable')
-                    .setTimestamp()], components: [], ephemeral: true
-            });
-        }
-    }
-
-    //Force bot leave the voice channel currently in
-    leave(interaction) {
-        const id = interaction.guildId
-        //Check bot status
-        if (this.connection[id] && this.connection[id].state.status === "ready") {
-            //Clear status
-            if (this.queue.hasOwnProperty(id)) {
-                delete this.queue[id];
-                this.isPlaying[id] = false;
-            }
-            this.connection[id].destroy();
-            //React command call
-            interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('ヾ(￣▽￣)Bye~Bye~')
-                    .setTimestamp()
-                ]
-            });
-        } else {
-            //If bot is not in any channel
-            interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('I\'m not in any channel')
-                    .setDescription('.help for commands')
-                    .setTimestamp()
-                ]
-            });
-        }
-    }
-
-    //Skip
-    skip(interaction) {
-        const id = interaction.guildId
-        //Check player existence
-        if (this.player[id]) {
-            //Reply command call
-            interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#2ECC71')
-                    .setTitle('Skip current track')
-                    .setTimestamp()
-                ]
-            });
-            this.player[id].stop(true);
-        }
-    }
-
-    //Pause
-    pause(interaction) {
-        const id = interaction.guildId
-        //Check player existence
-        if (this.player[id]) {
-            //Reply command call
-            interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('Pause playing')
-                    .setTimestamp()
-                ]
-            });
-            this.player[id].pause();
-        }
-    }
-
-    //Resume
-    resume(interaction) {
-        const id = interaction.guildId
-        //Check player existence
-        if (this.player[id]) {
-            //Reply command call
-            interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#3498DB')
-                    .setTitle('Resume playing')
-                    .setTimestamp()
-                ]
-            });
-            this.player[id].unpause();
-        }
-    }
-
-    //Queue status process
-    async viewQueue(interaction) {
-        const id = interaction.guildId
-        //Check queue existence
-        if (this.queue[id] && this.queue[id].length > 0) {
-            //Construct queue string
-            const queueString = this.queue[id].map((item, index) => `\n[${index + 1}] ${item.title}`).join();
-            //Return embed queue string
-            await interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#2ECC71')
-                    .setTitle('Current queue:')
-                    .setDescription(queueString)
-                    .setTimestamp()]
-            });
-        } else {
-            //If queue is empty / does not exist
-            await interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('There\'s no track in queue')
-                    .setTimestamp()]
+                    .setTimestamp()], components: [], flags: 64
             });
         }
     }
 
     //Get lyrics of current playing track / specified track
-    async lyric(interaction, title) {
-        const id = interaction.guildId
-        try {
-            //If 'title' argument is not provided
-            if (!title) {
-                //Assign 'title' with current playing track
-                title = this.queue[id][0].title;
-            }
-            //Fetch lyric with track title
-            const searches = await lyricClient.songs.search(title);
-            const song = searches[0];
-            const lyric = await song.lyrics();
-            //Return embed message with fetched lyrics
-            await interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#3498DB')
-                    .setTitle(song.title)
-                    .setURL(song.url)
-                    .setDescription(lyric)
-                    .setTimestamp()]
-            });
-        } catch (e) {
-            //Lyric with given title can not be found
-            await interaction.reply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#E74C3C')
-                    .setTitle('Lyric not found with title:')
-                    .setDescription(title)
-                    .setTimestamp()]
-            });
-        }
-    }
+    // async lyric(interaction, title) {
+    //     const id = interaction.guildId
+    //     try {
+    //         //If 'title' argument is not provided
+    //         if (!title) {
+    //             //Assign 'title' with current playing track
+    //             title = this.queue[id][0].title;
+    //         }
+    //         //Fetch lyric with track title
+    //         const searches = await lyricClient.songs.search(title);
+    //         const song = searches[0];
+    //         const lyric = await song.lyrics();
+    //         //Return embed message with fetched lyrics
+    //         await interaction.reply({
+    //             embeds: [new EmbedBuilder()
+    //                 .setColor('#3498DB')
+    //                 .setTitle(song.title)
+    //                 .setURL(song.url)
+    //                 .setDescription(lyric)
+    //                 .setTimestamp()]
+    //         });
+    //     } catch (e) {
+    //         //Lyric with given title can not be found
+    //         await interaction.reply({
+    //             embeds: [new EmbedBuilder()
+    //                 .setColor('#E74C3C')
+    //                 .setTitle('Lyric not found with title:')
+    //                 .setDescription(title)
+    //                 .setTimestamp()]
+    //         });
+    //     }
+    // }
 }
 
 //Export class
