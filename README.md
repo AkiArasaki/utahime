@@ -1,41 +1,42 @@
-🛠 Changes
+# 🛠 Changes
 
 This PR includes the following updates:
-🎵 New Features
 
-    Added pagination to queue display (10 songs per page)
+## 🎵 New Features
 
-    Supported queue search and page navigation via interaction buttons
+Added pagination to queue display (10 songs per page)
 
-    Added insert play feature: push a selected song to the front of the queue and play it next
+Supported queue search and page navigation via interaction buttons
 
-    Added "return to playlist" button in search results to go back to the full queue view
-    ⚠️ Note: This button currently breaks after interaction expires — global registration of interactions is not yet implemented
+Added insert play feature: push a selected song to the front of the queue and play it next
 
-🐞 Bug Fixes
+Added "return to playlist" button in search results to go back to the full queue view
+⚠️ Note: This button currently breaks after interaction expires — global registration of interactions is not yet implemented
 
-    Fixed bot crashes that occurred during certain playback scenarios
+## 🐞 Bug Fixes
 
-    Fixed issue where some YouTube links could not be played
+Fixed bot crashes that occurred during certain playback scenarios
 
-    Fixed commands not responding correctly under specific conditions
+Fixed issue where some YouTube links could not be played
 
-🔧 Other Improvements
+Fixed commands not responding correctly under specific conditions
 
-    Refactored play.js, queue.js, and related modules for improved modularity and readability
+## 🔧 Other Improvements
 
-    Introduced lib/ and handlers/ directories to separate concerns
+Refactored play.js, queue.js, and related modules for improved modularity and readability
 
-    Added .gitignore to prevent committing node_modules/, config.json, .env, and other sensitive or large files
+Introduced lib/ and handlers/ directories to separate concerns
 
-✅ Testing
+Added .gitignore to prevent committing node_modules/, config.json, .env, and other sensitive or large files
+
+## ✅ Testing
 
 All features were tested locally in a Discord server:
 
-    Queue pagination and navigation
+Queue pagination and navigation
 
-    Insert play logic and immediate playback
+Insert play logic and immediate playback
 
-    Song search functionality
+Song search functionality
 
-    Button-based interaction and partial recovery
+Button-based interaction and partial recovery
